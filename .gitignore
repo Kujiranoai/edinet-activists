@@ -41,5 +41,16 @@ pip-wheel-metadata/
 *.log
 
 # Project-generated data/artifacts
-data/
+data/*
+!data/drafts/
+!data/parsed/
+!data/reports/
+data/drafts/*
+data/parsed/*
+data/reports/*
+!data/drafts/*.md
+!data/parsed/*.json
+!data/reports/*.json
+data/edinet_watch.sqlite3
+data/raw/
 downloads/
