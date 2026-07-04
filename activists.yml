@@ -1,0 +1,7 @@
+# Maintain EDINET submitter codes first; aliases are fallback matching aids.
+activists:
+  - edinet_code: E31883
+    name: Oasis Management Company Limited
+    aliases:
+      - Oasis Management Co. Ltd
+    notes: Replace this sample with real EDINET submitter codes.

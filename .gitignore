@@ -1,0 +1,45 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Coverage and test output
+.coverage
+.coverage.*
+htmlcov/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs and runtime state
+*.log
+
+# Project-generated data/artifacts
+data/
+downloads/

@@ -1,0 +1,27 @@
+[project]
+name = "edinet-activist-watcher"
+version = "0.1.0"
+description = "Local-first EDINET large-shareholding watcher for activist investor filings."
+requires-python = ">=3.10"
+dependencies = [
+  "edinet-tools>=0.7.1",
+  "openai>=1.0.0",
+  "python-dotenv>=1.0.0",
+  "PyYAML>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+edinet-watch = "edinet_watcher.cli:main"
+
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["edinet_watcher*"]
