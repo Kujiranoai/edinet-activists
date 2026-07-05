@@ -2,7 +2,7 @@ substitutions:
   _REGION: asia-northeast1
   _REPOSITORY: edinet-watcher
   _JOB_NAME: edinet-watcher-hourly
-  _SERVICE_ACCOUNT: edinet-watcher-runner@${PROJECT_ID}.iam.gserviceaccount.com
+  _SERVICE_ACCOUNT: edinet-watcher-runner@activists-edinet.iam.gserviceaccount.com
   _FIREBASE_SITE: activists-edinet
   _PUBLIC_SITE_URL: https://activists-edinet.web.app
   _FIRESTORE_PREFIX: edinet_watcher
