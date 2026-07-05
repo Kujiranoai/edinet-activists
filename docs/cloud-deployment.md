@@ -100,6 +100,23 @@ gcloud artifacts repositories add-iam-policy-binding edinet-watcher \
   --role="roles/artifactregistry.writer"
 ```
 
+Create a dedicated source staging bucket for `gcloud builds submit`:
+
+```bash
+gcloud storage buckets create gs://activists-edinet-cloudbuild-source \
+  --location=asia-northeast1 \
+  --uniform-bucket-level-access \
+  --project=activists-edinet
+
+gcloud storage buckets add-iam-policy-binding gs://activists-edinet-cloudbuild-source \
+  --member="serviceAccount:edinet-watcher-deployer@activists-edinet.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+
+gcloud storage buckets add-iam-policy-binding gs://activists-edinet-cloudbuild-source \
+  --member="serviceAccount:1073110031446@cloudbuild.gserviceaccount.com" \
+  --role="roles/storage.objectViewer"
+```
+
 To let Cloud Build update the Cloud Run Job, grant these broader permissions
 only after you are ready to deploy:
 
