@@ -39,6 +39,7 @@ pip-wheel-metadata/
 
 # Logs and runtime state
 *.log
+.gcloud/
 
 # Project-generated data/artifacts
 data/*

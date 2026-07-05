@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 from edinet_watcher.activists import matches_activist
 from edinet_watcher.config import Settings
 from edinet_watcher.edinet_client import doc_to_metadata
 from edinet_watcher.models import Activist, FilingMetadata
+from edinet_watcher.parser import extract_target_name
 from edinet_watcher.pipeline import Pipeline
 from edinet_watcher.storage import Storage
+from edinet_watcher.text import normalize_display_text
 
 
 def metadata(doc_id: str = "S100TEST", doc_type: str = "350", pct: str | None = None) -> FilingMetadata:
@@ -80,10 +83,20 @@ class CoreTests(unittest.TestCase):
             )
             self.assertEqual(prev["ownership_pct"], 5.1)
 
+    def test_extracts_target_name_from_xbrl_fact_and_normalizes_display_text(self) -> None:
+        parsed = {
+            "facts": [
+                "Fact(element_id='jplvh_cor:NameOfIssuer', context_id='FilingDateInstant', value='ＫＨネオケム株式会社', unit_id='－')"
+            ]
+        }
+
+        self.assertEqual(extract_target_name(parsed), "ＫＨネオケム株式会社")
+        self.assertEqual(normalize_display_text(extract_target_name(parsed)), "KHネオケム株式会社")
+
 
 class FakeEdinet:
     def __init__(self) -> None:
-        self.docs = [metadata("S1", "350"), metadata("S2", "370")]
+        self.docs = [metadata("S1", "350"), metadata("S2", "360"), metadata("S3", "370")]
 
     def scan(self, days: int):
         return self.docs
@@ -96,7 +109,7 @@ class FakeEdinet:
 
     def parse_document(self, doc_id: str, metadata=None):
         return {
-            "ownership_pct": "6.25" if doc_id == "S2" else "5.10",
+            "ownership_pct": "6.25" if doc_id != "S1" else "5.10",
             "purpose_of_holding": "Pure investment, with possible engagement.",
         }
 
@@ -132,6 +145,7 @@ activists:
                 activists_path=base / "activists.yml",
                 extract_prompt_path=base / "prompt_extract.md",
                 article_prompt_path=base / "prompt_article.md",
+                followup_prompt_path=base / "prompt_followup.md",
                 edinet_api_key=None,
                 openai_api_key=None,
                 openai_model="test-model",
@@ -141,13 +155,33 @@ activists:
                 smtp_password=None,
                 email_from="from@example.test",
                 email_to="to@example.test",
+                site_dir=base / "data" / "site",
+                public_site_url=None,
+                firebase_project=None,
+                firebase_site=None,
+                followup_max_runs=6,
+                followup_interval_days=30,
+                storage_backend="sqlite",
+                google_cloud_project=None,
+                firestore_prefix="edinet_watcher",
             )
+            (base / "prompt_followup.md").write_text("followup", encoding="utf-8")
             emailer = FakeEmailer()
             pipeline = Pipeline(settings, edinet_client=FakeEdinet(), emailer=emailer)
 
             result = pipeline.run(days=3, offline=True)
 
-            self.assertEqual(result, {"scanned": 2, "processed": 2, "drafted": 2, "emailed": 2})
+            self.assertEqual(
+                result,
+                {
+                    "scanned": 3,
+                    "processed": 3,
+                    "drafted": 2,
+                    "emailed": 2,
+                    "site_built": 0,
+                    "site_deployed": False,
+                },
+            )
             self.assertEqual(len(emailer.sent), 2)
             drafts = sorted((base / "data" / "drafts").glob("*.md"))
             reports = sorted((base / "data" / "reports").glob("*.json"))
@@ -156,6 +190,19 @@ activists:
             report = json.loads(reports[0].read_text(encoding="utf-8"))
             self.assertIn("summary", report)
             self.assertIn("source", report)
+            followups = pipeline.storage.list_followups()
+            self.assertEqual(len(followups), 1)
+            self.assertEqual(followups[0]["root_doc_id"], "S1")
+
+            self.assertEqual(pipeline.followups(offline=True), 0)
+            self.assertEqual(pipeline.followups(offline=True, today=date(2026, 8, 3)), 1)
+            self.assertEqual(len(emailer.sent), 2)
+            self.assertEqual(pipeline.email(), 1)
+            self.assertEqual(len(emailer.sent), 3)
+
+            publish_result = pipeline.publish()
+            self.assertEqual(publish_result.built, 3)
+            self.assertTrue((base / "data" / "site" / "index.html").exists())
 
 
 if __name__ == "__main__":

@@ -15,12 +15,13 @@ def load_activists(path: Path) -> list[Activist]:
         raise FileNotFoundError(f"Activist registry not found: {path}")
 
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    entries = data.get("activists", [])
+    entries = data if isinstance(data, list) else data.get("activists", [])
     activists: list[Activist] = []
     for entry in entries:
+        edinet_code = entry.get("edinet_code")
         activists.append(
             Activist(
-                edinet_code=str(entry.get("edinet_code", "")).strip(),
+                edinet_code=str(edinet_code or "").strip(),
                 name=str(entry.get("name", "")).strip(),
                 aliases=tuple(str(alias).strip() for alias in entry.get("aliases", []) if str(alias).strip()),
                 notes=entry.get("notes"),

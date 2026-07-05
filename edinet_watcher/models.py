@@ -51,6 +51,7 @@ class ParsedFiling:
     raw_artifact_dir: Path | None
     parsed_artifact_path: Path
     ownership_pct: float | None
+    target_name: str | None
     purpose_of_holding: str | None
     important_proposal_rights: str | None
 

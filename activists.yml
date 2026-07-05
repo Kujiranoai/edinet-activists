@@ -1,7 +1,180 @@
-# Maintain EDINET submitter codes first; aliases are fallback matching aids.
-activists:
-  - edinet_code: E31883
-    name: Oasis Management Company Limited
-    aliases:
-      - Oasis Management Co. Ltd
-    notes: Replace this sample with real EDINET submitter codes.
+- edinet_code: E31883
+  name: Oasis Management Company Ltd.
+  aliases:
+    - Oasis Management Company Limited
+    - Oasis Management Co. Ltd
+    - オアシス マネジメント カンパニー リミテッド
+    - オアシス
+
+- edinet_code: E27325
+  name: 株式会社ストラテジックキャピタル
+  aliases:
+    - Strategic Capital, Inc.
+    - Strategic Capital
+    - ストラテジックキャピタル
+
+- edinet_code: E11852
+  name: Effissimo Capital Management Pte Ltd
+  aliases:
+    - Effissimo Capital Management Pte. Ltd.
+    - エフィッシモ キャピタル マネージメント ピーティーイー エルティーディー
+    - エフィッシモ
+
+- edinet_code: E24231
+  name: 株式会社レノ
+  aliases:
+    - Reno, Inc.
+    - レノ
+
+- edinet_code: E35393
+  name: 株式会社シティインデックスイレブンス
+  aliases:
+    - City Index Eleventh Co., Ltd.
+    - City Index Eleventh
+    - シティインデックスイレブンス
+
+- edinet_code: E27236
+  name: 株式会社南青山不動産
+  aliases:
+    - Minami Aoyama Fudosan Co., Ltd.
+    - Minami-Aoyama Fudosan
+    - 南青山不動産
+
+- edinet_code: E26526
+  name: 株式会社ATRA
+  aliases:
+    - ATRA Co., Ltd.
+    - ATRA
+
+- edinet_code: E04037
+  name: 株式会社エスグラントコーポレーション
+  aliases:
+    - S-Grant Corporation
+    - エスグラントコーポレーション
+
+- edinet_code: E31712
+  name: 野村絢
+  aliases:
+    - Aya Nomura
+    - Nomura Aya
+
+- edinet_code: null
+  name: 村上世彰
+  aliases:
+    - Yoshiaki Murakami
+    - Murakami Yoshiaki
+    - 村上ファンド
+    - Murakami Fund
+
+- edinet_code: E33309
+  name: 3D Investment Partners Pte. Ltd.
+  aliases:
+    - 3D Investment Partners
+    - ３Ｄインベストメント・パートナーズ・プライベート・リミティッド
+    - ３Ｄインベストメント
+    - スリーディーインベストメント
+
+- edinet_code: E39237
+  name: Dalton Investments, Inc.
+  aliases:
+    - Dalton Investments
+    - ダルトン・インベストメンツ・インク
+    - ダルトン
+
+- edinet_code: E36104
+  name: NIPPON ACTIVE VALUE FUND PLC
+  aliases:
+    - Nippon Active Value Fund
+    - NAVF
+    - ニッポン・アクティブ・バリュー・ファンド
+
+- edinet_code: null
+  name: NAVF Select LLC
+  aliases:
+    - NAVF Select
+    - NAVF Select L.L.C.
+
+- edinet_code: E35450
+  name: Elliott Investment Management L.P.
+  aliases:
+    - Elliott Investment Management
+    - Elliott International, L.P.
+    - Elliott Associates, L.P.
+    - エリオット・インベストメント・マネージメント・エルピー
+    - エリオット
+
+- edinet_code: E27699
+  name: Farallon Capital Management, L.L.C.
+  aliases:
+    - Farallon Capital Management LLC
+    - Farallon Capital
+    - ファラロン・キャピタル・マネジメント・エルエルシー
+    - ファラロン
+
+- edinet_code: E34138
+  name: ValueAct Capital Management, L.P.
+  aliases:
+    - ValueAct Capital Management
+    - ValueAct Japan Master Fund, L.P.
+    - ValueAct Strategic Master Fund III, L.P.
+    - バリューアクト
+
+- edinet_code: E34595
+  name: Asset Value Investors Limited
+  aliases:
+    - Asset Value Investors Ltd.
+    - AVI Japan Opportunity Trust
+    - AVI
+    - アセット・バリュー・インベスターズ・リミテッド
+
+- edinet_code: E24872
+  name: Silchester International Investors LLP
+  aliases:
+    - Silchester International Investors
+    - シルチェスター・インターナショナル・インベスターズ・エルエルピー
+    - シルチェスター
+
+- edinet_code: E41402
+  name: Hibiki Path Advisors SPC
+  aliases:
+    - Hibiki Path Advisors
+    - Hibiki Path Advisors Pte. Ltd.
+    - ひびき・パース・アドバイザーズ・エスピーシー
+    - ひびき・パース・アドバイザーズ
+    - ひびき
+
+- edinet_code: E37907
+  name: Kaname Capital, L.P.
+  aliases:
+    - Kaname Capital
+    - カナメ・キャピタル・エルピー
+    - カナメ・キャピタル
+
+- edinet_code: E38244
+  name: ありあけキャピタル株式会社
+  aliases:
+    - Ariake Capital
+    - Ariake Capital Co., Ltd.
+    - ありあけキャピタル
+
+- edinet_code: null
+  name: Palliser Capital Master Fund Ltd
+  aliases:
+    - Palliser Capital
+    - Palliser Capital Ltd
+    - パリサー・キャピタル
+    - パリサー
+
+- edinet_code: null
+  name: LIM Advisors Limited
+  aliases:
+    - LIM Advisors
+    - LIM Japan Event Fund
+    - リム・アドバイザーズ
+
+- edinet_code: E31930
+  name: RMB Capital Management, LLC
+  aliases:
+    - RMB Capital Management
+    - RMB Japan Opportunities Fund
+    - アールエムビー・キャピタル・マネジメント

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .text import normalize_display_text
+
 
 EXTRACTION_SCHEMA = {
     "type": "object",
@@ -83,6 +85,23 @@ class LlmClient:
         )
         return response.output_text
 
+    def followup_research(self, prompt: str, payload: dict[str, Any]) -> str:
+        """Ask OpenAI to search for public follow-up information with citations."""
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY is required unless --offline is used")
+        from openai import OpenAI
+
+        client = OpenAI(api_key=self.api_key)
+        response = client.responses.create(
+            model=self.model,
+            tools=[{"type": "web_search"}],
+            input=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)},
+            ],
+        )
+        return response.output_text
+
 
 def offline_summary(payload: dict[str, Any]) -> dict[str, Any]:
     """Create a deterministic summary for local tests without OpenAI."""
@@ -113,8 +132,11 @@ def offline_summary(payload: dict[str, Any]) -> dict[str, Any]:
 
 def offline_article(summary: dict[str, Any], doc_id: str) -> str:
     """Create a deterministic Markdown draft for local tests without OpenAI."""
-    headline = f"{summary.get('filer') or 'Investor'} files {summary.get('filing_type') or 'EDINET report'}"
-    facts = "\n".join(f"- {fact}" for fact in summary.get("headline_facts", []))
+    filer = normalize_display_text(summary.get("filer") or "Investor")
+    target = normalize_display_text(summary.get("target_company") or "Target company")
+    filing_type = normalize_display_text(summary.get("filing_type") or "EDINET report")
+    headline = f"{filer} / {target}: {filing_type}"
+    facts = "\n".join(f"- {normalize_display_text(fact)}" for fact in summary.get("headline_facts", []))
     caveats = "\n".join(f"- {item}" for item in summary.get("caveats", [])) or "- None noted."
     return f"""# {headline}
 
@@ -137,4 +159,18 @@ Change: {summary.get('ownership_delta_pct')}
 ## Source
 
 EDINET document ID: `{doc_id}`
+"""
+
+
+def offline_followup_article(payload: dict[str, Any]) -> str:
+    """Create a deterministic monthly follow-up article for local tests."""
+    followup = payload["followup"]
+    run_number = payload["run_number"]
+    filer = normalize_display_text(followup.get("filer_name") or "Investor")
+    target = normalize_display_text(followup.get("target_name") or "Target")
+    return f"""# Monthly follow-up {run_number}: {filer} / {target}
+
+No live web search was run because offline mode is enabled.
+
+Initial EDINET document ID: `{followup.get('root_doc_id')}`
 """

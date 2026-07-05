@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+data
+data-*
+firebase-debug.log
+firebase.json.txt
+hosting.jpg
+firebase.jpg

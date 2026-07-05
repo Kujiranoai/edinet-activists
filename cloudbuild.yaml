@@ -1,0 +1,59 @@
+substitutions:
+  _REGION: asia-northeast1
+  _REPOSITORY: edinet-watcher
+  _JOB_NAME: edinet-watcher-hourly
+  _SERVICE_ACCOUNT: edinet-watcher-runner@${PROJECT_ID}.iam.gserviceaccount.com
+  _FIREBASE_SITE: activists-edinet
+  _PUBLIC_SITE_URL: https://activists-edinet.web.app
+  _FIRESTORE_PREFIX: edinet_watcher
+  _SCAN_DAYS: "3"
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:${SHORT_SHA}
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:latest
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ${_JOB_NAME}
+      - --image
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:${SHORT_SHA}
+      - --region
+      - ${_REGION}
+      - --service-account
+      - ${_SERVICE_ACCOUNT}
+      - --tasks
+      - "1"
+      - --max-retries
+      - "1"
+      - --task-timeout
+      - 3600s
+      - --set-env-vars
+      - STORAGE_BACKEND=firestore,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},FIRESTORE_PREFIX=${_FIRESTORE_PREFIX},SITE_DIR=/tmp/site,DATA_DIR=/tmp/data,FIREBASE_PROJECT=${PROJECT_ID},FIREBASE_SITE=${_FIREBASE_SITE},PUBLIC_SITE_URL=${_PUBLIC_SITE_URL}
+      - --set-secrets
+      - EDINET_API_KEY=edinet-api-key:latest,OPENAI_API_KEY=openai-api-key:latest,SMTP_HOST=smtp-host:latest,SMTP_USER=smtp-user:latest,SMTP_PASSWORD=smtp-password:latest,EMAIL_FROM=email-from:latest,EMAIL_TO=email-to:latest
+      - --args
+      - run,--days,${_SCAN_DAYS},--publish,--deploy
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/edinet-watcher:latest

@@ -1,7 +1,7 @@
 Write a concise Substack-ready draft for an investor audience.
 
 Use this structure:
-1. A clear headline.
+1. A clear Markdown H1 headline naming both the activist investor/filer and the target issuer/company.
 2. A short factual lead describing the filer, issuer, filing type, holding ratio, and change from the prior known filing.
 3. Why the filing may matter, explicitly labeling interpretation as commentary.
 4. Filing history and caveats.

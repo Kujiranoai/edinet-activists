@@ -8,13 +8,15 @@ for reading the code, not as a formal specification.
 The program watches EDINET for large-shareholding filings from a configured
 list of activist investors.
 
-At a high level it does five jobs:
+At a high level it does seven jobs:
 
 1. Load settings from `.env`.
 2. Scan EDINET for recent large-shareholding filings.
 3. Keep only filings whose filer matches `activists.yml`.
 4. Download, parse, and store useful filing facts.
-5. Ask OpenAI to draft a report, then email the draft to you.
+5. Ask OpenAI to draft immediate reports for initial and amended 5% filings.
+6. Schedule monthly follow-up research for initial 5% filings.
+7. Email drafts and build a static website that can be deployed to Firebase.
 
 The main command is `edinet-watch`, which is registered in `pyproject.toml`.
 That command enters the program through `edinet_watcher/cli.py`.
@@ -28,6 +30,8 @@ edinet-watch scan --days 3
 edinet-watch process
 edinet-watch draft
 edinet-watch email
+edinet-watch followups run
+edinet-watch publish
 edinet-watch run --days 3
 ```
 
@@ -35,12 +39,14 @@ The `run` command performs the same steps in order:
 
 ```text
 scan -> process -> draft -> email
+                         -> publish
 ```
 
 For local testing without OpenAI, use:
 
 ```bash
 edinet-watch draft --offline
+edinet-watch followups run --offline
 ```
 
 or:
@@ -64,7 +70,12 @@ EDINET API
   -> Markdown draft under data/drafts/
   -> drafts table
   -> SMTP email
+  -> static HTML under data/site/
 ```
+
+Initial `350` filings also create follow-up schedules. A daily
+`edinet-watch followups run` command checks due schedules, asks OpenAI to run a
+web-search-backed research prompt, and stores the result as another draft.
 
 Each stage records its progress so the next command knows what to work on.
 For example, `process` looks for filings with status `discovered`,
@@ -93,8 +104,12 @@ The important methods are:
 
 - `scan`: fetch metadata from EDINET and insert matching activist filings.
 - `process`: download and parse discovered filings.
-- `draft`: call OpenAI, or offline helpers, to create report and draft files.
+- `draft`: call OpenAI, or offline helpers, to create report and draft files
+  for `350` and `360` filings.
 - `email`: send pending drafts through SMTP.
+- `followups`: run and manage monthly follow-up research for initial `350`
+  filings.
+- `publish`: build the static site and optionally deploy through Firebase CLI.
 - `run`: call the above steps in order.
 
 The pipeline deliberately delegates specialized work to smaller modules:
@@ -103,6 +118,7 @@ The pipeline deliberately delegates specialized work to smaller modules:
 - Database work goes to `storage.py`.
 - OpenAI work goes to `llm.py`.
 - Email delivery goes to `emailer.py`.
+- Static site generation and Firebase CLI deployment go to `publisher.py`.
 - Activist matching goes to `activists.py`.
 - Field extraction from parsed filings goes to `parser.py`.
 
@@ -121,6 +137,13 @@ Important values include:
 - `SMTP_PASSWORD`
 - `EMAIL_FROM`
 - `EMAIL_TO`
+- `PROMPT_FOLLOWUP_PATH`
+- `FOLLOWUP_MAX_RUNS`
+- `FOLLOWUP_INTERVAL_DAYS`
+- `SITE_DIR`
+- `PUBLIC_SITE_URL`
+- `FIREBASE_PROJECT`
+- `FIREBASE_SITE`
 
 The `--data-dir` CLI option also flows into `Settings`. By default, artifacts
 and the SQLite database are stored under `data/`.
@@ -149,8 +172,8 @@ name and alias matching.
 Owns SQLite access.
 
 It creates the database tables, inserts discovered filings, updates statuses,
-stores parsed filing history, and tracks whether generated drafts still need
-to be emailed.
+stores parsed filing history, schedules follow-ups, and tracks whether
+generated drafts still need to be emailed or published.
 
 ### `parser.py`
 
@@ -167,7 +190,7 @@ recursively for known field names.
 
 Owns OpenAI calls and offline draft generation.
 
-The live path has two calls:
+The immediate filing path has two calls:
 
 1. `extract` asks OpenAI for a structured JSON summary.
 2. `draft_article` asks OpenAI to turn that summary into a Markdown article.
@@ -176,6 +199,19 @@ The offline path uses deterministic local functions instead:
 
 - `offline_summary`
 - `offline_article`
+- `offline_followup_article`
+
+Monthly follow-ups use `followup_research`, which enables OpenAI hosted web
+search and asks for cited public developments since the initial filing.
+
+### `publisher.py`
+
+Builds static HTML from generated Markdown drafts under `data/site/`.
+
+The current deploy backend shells out to Firebase CLI with `firebase deploy
+--only hosting`. The deploy boundary is intentionally narrow so it can later be
+replaced by Firebase Hosting REST API calls without changing the pipeline or
+report generation code.
 
 ### `emailer.py`
 
@@ -222,6 +258,8 @@ Common statuses:
 - `parsed`: parsed JSON and history were written.
 - `llm_failed`: OpenAI or draft generation failed.
 - `drafted`: report and draft files were generated.
+- `draft_skipped`: parsed successfully, but immediate drafting is skipped
+  because the filing is a `370` or `380`.
 
 ### `filing_history`
 
@@ -240,8 +278,30 @@ Important columns:
 - `report_path`: JSON report file.
 - `draft_path`: Markdown draft file.
 - `email_status`: usually `pending` or `sent`.
+- `publish_status`: usually `pending`, `built`, or `deployed`.
+- `public_url`: static site URL if configured.
 
 The `email` command only sends rows where `email_status = 'pending'`.
+The `publish` command renders all known drafts into static HTML and updates
+publish status.
+
+### `followups`
+
+One row per initial `350` filing that should receive monthly follow-up
+research.
+
+Important columns:
+
+- `root_doc_id`: the initial `350` EDINET document ID.
+- `status`: `active`, `paused`, `stopped`, `completed`, or `failed`.
+- `next_run_date`: the next daily run date that should trigger research.
+- `run_count`: number of monthly follow-ups already generated.
+- `max_runs`: default six.
+- `interval_days`: default thirty.
+
+### `followup_runs`
+
+One row per generated monthly follow-up report.
 
 ## Artifact Files
 
@@ -251,7 +311,9 @@ The project writes files under `data/` by default:
 data/raw/{doc_id}/xbrl.zip
 data/parsed/{doc_id}.json
 data/reports/{doc_id}.json
+data/followups/{doc_id}-{run}.json
 data/drafts/{date}-{doc_id}.md
+data/site/index.html
 data/edinet_watch.sqlite3
 ```
 
@@ -273,6 +335,8 @@ To test with real EDINET data but no OpenAI or email:
 edinet-watch scan --days 3
 edinet-watch process
 edinet-watch draft --offline
+edinet-watch followups run --offline
+edinet-watch publish
 ```
 
 To test the full live path:
@@ -282,6 +346,7 @@ edinet-watch scan --days 3
 edinet-watch process
 edinet-watch draft
 edinet-watch email
+edinet-watch publish --deploy
 ```
 
 To use a clean test database and avoid changing your normal `data/` directory:
@@ -301,7 +366,13 @@ python -c "import sqlite3; c=sqlite3.connect('data/edinet_watch.sqlite3'); c.row
 List draft email states:
 
 ```bash
-python -c "import sqlite3; c=sqlite3.connect('data/edinet_watch.sqlite3'); c.row_factory=sqlite3.Row; [print(dict(r)) for r in c.execute('select doc_id,email_status,draft_path,report_path from drafts')]"
+python -c "import sqlite3; c=sqlite3.connect('data/edinet_watch.sqlite3'); c.row_factory=sqlite3.Row; [print(dict(r)) for r in c.execute('select doc_id,email_status,publish_status,draft_path,report_path from drafts')]"
+```
+
+List follow-up schedules:
+
+```bash
+edinet-watch followups list
 ```
 
 In VS Code, a SQLite viewer extension can open `data/edinet_watch.sqlite3`
@@ -319,6 +390,7 @@ A good order for learning the code is:
 6. `edinet_watcher/edinet_client.py`
 7. `edinet_watcher/llm.py`
 8. `edinet_watcher/emailer.py`
+9. `edinet_watcher/publisher.py`
 
 The key mental model is this: the pipeline moves filings through statuses in
 SQLite, while artifact files under `data/` hold the raw, parsed, and drafted

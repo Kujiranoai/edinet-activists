@@ -5,6 +5,7 @@ description = "Local-first EDINET large-shareholding watcher for activist invest
 requires-python = ">=3.10"
 dependencies = [
   "edinet-tools>=0.7.1",
+  "google-cloud-firestore>=2.16.0",
   "openai>=1.0.0",
   "python-dotenv>=1.0.0",
   "PyYAML>=6.0.0",
