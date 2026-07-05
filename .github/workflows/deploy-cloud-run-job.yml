@@ -35,4 +35,4 @@ jobs:
             --project="${{ vars.GCP_PROJECT_ID }}" \
             --config=cloudbuild.yaml \
             --gcs-source-staging-dir="gs://${{ vars.GCP_PROJECT_ID }}-cloudbuild-source/source" \
-            --substitutions=_REGION="${{ inputs.region }}",_SCAN_DAYS="${{ inputs.scan_days }}"
+            --substitutions=_REGION="${{ inputs.region }}",_SCAN_DAYS="${{ inputs.scan_days }}",_IMAGE_TAG="${{ github.sha }}"
