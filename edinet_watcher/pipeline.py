@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -9,8 +11,9 @@ from .activists import load_activists, matches_activist
 from .config import Settings
 from .edinet_client import EdinetClient
 from .emailer import Emailer
+from .logging_utils import log_event
 from .llm import LlmClient, offline_article, offline_followup_article, offline_summary
-from .models import DraftArtifacts, FilingComparison, FilingMetadata, ParsedFiling
+from .models import DraftArtifacts, FilingComparison, FilingMetadata, ParsedFiling, ScanResult
 from .parser import extract_ownership_pct, extract_proposal_rights, extract_purpose, extract_target_name
 from .publisher import PublishResult, StaticSitePublisher
 from .storage import Storage
@@ -42,6 +45,7 @@ class Pipeline:
         self.llm = llm_client or LlmClient(settings.openai_api_key, settings.openai_model)
         self.emailer = emailer or Emailer(settings)
         self.publisher = StaticSitePublisher(settings, self.storage)
+        self.logger = logging.getLogger(__name__)
 
     def initialize(self) -> None:
         """Create artifact directories and database tables if needed."""
@@ -50,20 +54,55 @@ class Pipeline:
 
     def scan(self, days: int) -> int:
         """Find recent watched EDINET filings and store new matches."""
+        return int(self.scan_detailed(days)["new_filings"])
+
+    def scan_detailed(self, days: int) -> dict[str, Any]:
+        """Find recent watched EDINET filings and return scan counters."""
         self.initialize()
         activists = load_activists(self.settings.activists_path)
-        count = 0
-        for metadata in self.edinet.scan(days):
+        scan_result = self._scan_edinet(days)
+        activist_matches = 0
+        new_filings = 0
+        duplicate_filings = 0
+        matched_doc_ids = []
+        for metadata in scan_result.filings:
             activist = matches_activist(metadata, activists)
-            if activist and self.storage.upsert_discovered(metadata, activist.edinet_code):
-                count += 1
-        return count
+            if activist:
+                activist_matches += 1
+                matched_doc_ids.append(metadata.doc_id)
+                if self.storage.upsert_discovered(metadata, activist.edinet_code):
+                    new_filings += 1
+                else:
+                    duplicate_filings += 1
+        result = {
+            "days": days,
+            "records_examined": scan_result.records_examined,
+            "watched_reports_found": scan_result.watched_count,
+            "watched_by_doc_type": scan_result.watched_by_doc_type,
+            "activist_matches": activist_matches,
+            "new_filings": new_filings,
+            "duplicate_filings": duplicate_filings,
+            "matched_doc_ids": matched_doc_ids,
+        }
+        log_event(self.logger, logging.INFO, "scan_completed", **result)
+        return result
 
     def process(self) -> int:
         """Download and parse discovered filings, recording extracted facts."""
+        return int(self.process_detailed()["parsed"])
+
+    def process_detailed(self) -> dict[str, int]:
+        """Download and parse discovered filings, returning per-outcome counters."""
         self.initialize()
-        count = 0
+        result = {
+            "attempted": 0,
+            "parsed": 0,
+            "download_failed": 0,
+            "parse_failed": 0,
+            "followups_scheduled": 0,
+        }
         for row in self.storage.pending_filings(["discovered", "download_failed", "parse_failed"]):
+            result["attempted"] += 1
             metadata = _metadata_from_row(row)
             try:
                 parsed = self._parse_filing(metadata)
@@ -81,52 +120,126 @@ class Pipeline:
                 )
                 self.storage.mark_status(metadata.doc_id, "parsed")
                 if metadata.doc_type_code in FOLLOWUP_ROOT_DOC_TYPES:
-                    self._schedule_followup(row, metadata)
-                count += 1
+                    if self._schedule_followup(row, metadata):
+                        result["followups_scheduled"] += 1
+                result["parsed"] += 1
             except DownloadError as exc:
                 self.storage.mark_status(metadata.doc_id, "download_failed", str(exc))
+                result["download_failed"] += 1
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "filing_download_failed",
+                    doc_id=metadata.doc_id,
+                    doc_type_code=metadata.doc_type_code,
+                    error=str(exc),
+                )
             except Exception as exc:
                 self.storage.mark_status(metadata.doc_id, "parse_failed", str(exc))
-        return count
+                result["parse_failed"] += 1
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "filing_parse_failed",
+                    doc_id=metadata.doc_id,
+                    doc_type_code=metadata.doc_type_code,
+                    error=str(exc),
+                )
+        log_event(self.logger, logging.INFO, "process_completed", **result)
+        return result
 
     def draft(self, offline: bool = False) -> int:
         """Generate report JSON and Markdown drafts for parsed filings."""
+        return int(self.draft_detailed(offline=offline)["drafted"])
+
+    def draft_detailed(self, offline: bool = False) -> dict[str, Any]:
+        """Generate report JSON and Markdown drafts, returning per-outcome counters."""
         self.initialize()
         extract_prompt = self.settings.extract_prompt_path.read_text(encoding="utf-8")
         article_prompt = self.settings.article_prompt_path.read_text(encoding="utf-8")
-        count = 0
+        result: dict[str, Any] = {
+            "offline": offline,
+            "attempted": 0,
+            "eligible": 0,
+            "draft_skipped": 0,
+            "drafted": 0,
+            "llm_failed": 0,
+        }
         for row in self.storage.pending_filings(["parsed", "llm_failed"]):
+            result["attempted"] = int(result["attempted"]) + 1
             metadata = _metadata_from_row(row)
             if metadata.doc_type_code not in IMMEDIATE_LLM_DOC_TYPES:
                 self.storage.mark_status(row["doc_id"], "draft_skipped")
+                result["draft_skipped"] = int(result["draft_skipped"]) + 1
                 continue
+            result["eligible"] = int(result["eligible"]) + 1
             try:
                 artifacts = self._draft_one(row, extract_prompt, article_prompt, offline)
                 self.storage.upsert_draft(row["doc_id"], artifacts.report_path, artifacts.draft_path)
                 self.storage.mark_status(row["doc_id"], "drafted")
-                count += 1
+                result["drafted"] = int(result["drafted"]) + 1
             except Exception as exc:
                 self.storage.mark_status(row["doc_id"], "llm_failed", str(exc))
-        return count
+                result["llm_failed"] = int(result["llm_failed"]) + 1
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "llm_generation_failed",
+                    doc_id=metadata.doc_id,
+                    doc_type_code=metadata.doc_type_code,
+                    error=str(exc),
+                )
+        log_event(self.logger, logging.INFO, "draft_completed", **result)
+        return result
 
     def email(self) -> int:
         """Send generated drafts whose email status is still pending."""
+        return int(self.email_detailed()["sent"])
+
+    def email_detailed(self) -> dict[str, int]:
+        """Send generated drafts, returning per-outcome counters."""
         self.initialize()
-        count = 0
-        for row in self.storage.pending_emails():
-            draft_path = Path(row["draft_path"])
-            report_path = Path(row["report_path"])
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            subject, body = self._email_message(report, draft_path, report_path)
-            self.emailer.send_draft(subject=subject, body=body, draft_path=draft_path, report_path=report_path)
-            self.storage.mark_email_status(row["doc_id"], "sent")
-            count += 1
-        return count
+        rows = self.storage.pending_emails()
+        result = {"pending": len(rows), "sent": 0, "failed": 0}
+        for row in rows:
+            try:
+                draft_path = Path(row["draft_path"])
+                report_path = Path(row["report_path"])
+                report_text = _read_artifact_text(report_path, row.get("report_json"))
+                report = json.loads(report_text)
+                subject, body = self._email_message(report, draft_path, report_path)
+                self.emailer.send_draft(subject=subject, body=body, draft_path=draft_path, report_path=report_path)
+                self.storage.mark_email_status(row["doc_id"], "sent")
+                result["sent"] += 1
+            except Exception as exc:
+                self.storage.mark_email_status(row["doc_id"], "failed")
+                result["failed"] += 1
+                log_event(
+                    self.logger,
+                    logging.WARNING,
+                    "email_send_failed",
+                    doc_id=row.get("doc_id"),
+                    error=str(exc),
+                )
+        log_event(self.logger, logging.INFO, "email_completed", **result)
+        return result
 
     def publish(self, deploy: bool = False) -> PublishResult:
         """Build the static website and optionally deploy it."""
         self.initialize()
-        return self.publisher.publish(deploy=deploy)
+        try:
+            result = self.publisher.publish(deploy=deploy)
+        except Exception as exc:
+            log_event(self.logger, logging.ERROR, "publish_failed", deploy=deploy, error=str(exc))
+            raise
+        log_event(
+            self.logger,
+            logging.INFO,
+            "publish_completed",
+            site_built=result.built,
+            site_deployed=result.deployed,
+        )
+        return result
 
     def followups(self, offline: bool = False, today: date | None = None) -> int:
         """Run due monthly follow-up research reports."""
@@ -167,21 +280,74 @@ class Pipeline:
         send_email: bool = True,
         publish: bool = False,
         deploy: bool = False,
-    ) -> dict[str, int | bool]:
+    ) -> dict[str, Any]:
         """Run scan, process, draft, and optional delivery steps as one command."""
-        scanned = self.scan(days)
-        processed = self.process()
-        drafted = self.draft(offline=offline)
-        emailed = self.email() if send_email else 0
-        published = self.publish(deploy=deploy) if publish else PublishResult(built=0, deployed=False)
-        return {
-            "scanned": scanned,
-            "processed": processed,
-            "drafted": drafted,
-            "emailed": emailed,
-            "site_built": published.built,
-            "site_deployed": published.deployed,
-        }
+        run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+        log_event(
+            self.logger,
+            logging.INFO,
+            "run_started",
+            run_id=run_id,
+            days=days,
+            offline=offline,
+            send_email=send_email,
+            publish=publish,
+            deploy=deploy,
+            storage_backend=self.settings.storage_backend,
+        )
+        try:
+            scan = self.scan_detailed(days)
+            process = self.process_detailed()
+            draft = self.draft_detailed(offline=offline)
+            email = self.email_detailed() if send_email else {"pending": 0, "sent": 0, "failed": 0}
+            published = self.publish(deploy=deploy) if publish else PublishResult(built=0, deployed=False)
+            snapshot = self.storage_snapshot()
+            result = {
+                "run_id": run_id,
+                "records_examined": int(scan["records_examined"]),
+                "watched_reports_found": int(scan["watched_reports_found"]),
+                "activist_matches": int(scan["activist_matches"]),
+                "new_filings": int(scan["new_filings"]),
+                "duplicate_filings": int(scan["duplicate_filings"]),
+                "processed": process["parsed"],
+                "drafted": int(draft["drafted"]),
+                "emailed": email["sent"],
+                "email_failed": email["failed"],
+                "site_built": published.built,
+                "site_deployed": published.deployed,
+                "errors": (
+                    process["download_failed"]
+                    + process["parse_failed"]
+                    + int(draft["llm_failed"])
+                    + email["failed"]
+                ),
+                "status_counts": snapshot,
+            }
+            log_event(self.logger, logging.INFO, "run_completed", **result)
+            return result
+        except Exception as exc:
+            log_event(self.logger, logging.ERROR, "run_failed", run_id=run_id, error=str(exc))
+            raise
+
+    def storage_snapshot(self) -> dict[str, dict[str, int]]:
+        """Return and log compact status totals from the active storage backend."""
+        counts = self.storage.status_counts()
+        log_event(self.logger, logging.INFO, "storage_snapshot", status_counts=counts)
+        return counts
+
+    def _scan_edinet(self, days: int) -> ScanResult:
+        if hasattr(self.edinet, "scan_with_stats"):
+            return self.edinet.scan_with_stats(days)
+        filings = self.edinet.scan(days)
+        watched_by_doc_type = {doc_type: 0 for doc_type in ("350", "360", "370", "380")}
+        for filing in filings:
+            watched_by_doc_type[filing.doc_type_code] = watched_by_doc_type.get(filing.doc_type_code, 0) + 1
+        return ScanResult(
+            filings=filings,
+            records_examined=len(filings),
+            watched_count=len(filings),
+            watched_by_doc_type=watched_by_doc_type,
+        )
 
     def _parse_filing(self, metadata: FilingMetadata) -> ParsedFiling:
         """Download one EDINET filing and write its parsed JSON artifact."""
@@ -282,9 +448,9 @@ class Pipeline:
         draft_path.write_text(article, encoding="utf-8")
         return DraftArtifacts(report_path=report_path, draft_path=draft_path, generated_at=datetime.now(timezone.utc))
 
-    def _schedule_followup(self, row: dict[str, Any], metadata: FilingMetadata) -> None:
+    def _schedule_followup(self, row: dict[str, Any], metadata: FilingMetadata) -> bool:
         submit_date = _date_from_metadata(metadata) or date.today()
-        self.storage.upsert_followup(
+        return self.storage.upsert_followup(
             root_doc_id=metadata.doc_id,
             activist_code=row.get("activist_code"),
             filer_edinet_code=metadata.filer_edinet_code,
@@ -320,6 +486,14 @@ class Pipeline:
     def _current_history(self, doc_id: str) -> dict[str, Any] | None:
         """Return the parsed history row for the current filing, if present."""
         return self.storage.current_history(doc_id)
+
+
+def _read_artifact_text(path: Path, stored: Any) -> str:
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    if stored:
+        return str(stored)
+    raise FileNotFoundError(str(path))
 
 
 def _metadata_from_row(row: dict[str, Any]) -> FilingMetadata:

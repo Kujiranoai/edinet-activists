@@ -5,6 +5,7 @@ import json
 import os
 
 from .config import Settings
+from .logging_utils import configure_logging
 from .pipeline import Pipeline
 
 
@@ -50,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    configure_logging(os.getenv("LOG_LEVEL", "INFO"))
     settings = Settings.from_env(data_dir=args.data_dir)
     pipeline = Pipeline(settings)
 

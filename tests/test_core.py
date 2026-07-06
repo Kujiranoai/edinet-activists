@@ -171,17 +171,18 @@ activists:
 
             result = pipeline.run(days=3, offline=True)
 
-            self.assertEqual(
-                result,
-                {
-                    "scanned": 3,
-                    "processed": 3,
-                    "drafted": 2,
-                    "emailed": 2,
-                    "site_built": 0,
-                    "site_deployed": False,
-                },
-            )
+            self.assertEqual(result["records_examined"], 3)
+            self.assertEqual(result["watched_reports_found"], 3)
+            self.assertEqual(result["activist_matches"], 3)
+            self.assertEqual(result["new_filings"], 3)
+            self.assertEqual(result["processed"], 3)
+            self.assertEqual(result["drafted"], 2)
+            self.assertEqual(result["emailed"], 2)
+            self.assertEqual(result["site_built"], 0)
+            self.assertFalse(result["site_deployed"])
+            self.assertEqual(result["errors"], 0)
+            self.assertEqual(result["status_counts"]["filings"], {"draft_skipped": 1, "drafted": 2})
+            self.assertEqual(result["status_counts"]["emails"], {"sent": 2})
             self.assertEqual(len(emailer.sent), 2)
             drafts = sorted((base / "data" / "drafts").glob("*.md"))
             reports = sorted((base / "data" / "reports").glob("*.json"))

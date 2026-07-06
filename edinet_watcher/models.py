@@ -45,6 +45,14 @@ class FilingMetadata:
 
 
 @dataclass(frozen=True)
+class ScanResult:
+    filings: list[FilingMetadata]
+    records_examined: int
+    watched_count: int
+    watched_by_doc_type: dict[str, int]
+
+
+@dataclass(frozen=True)
 class ParsedFiling:
     metadata: FilingMetadata
     parsed: dict[str, Any]

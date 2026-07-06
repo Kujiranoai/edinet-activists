@@ -240,9 +240,14 @@ class Storage:
             )
 
     def pending_emails(self) -> list[dict[str, Any]]:
-        """Return generated drafts that have not been emailed yet."""
+        """Return generated drafts that still need email delivery or retry."""
         with self.connect() as conn:
-            return [dict(row) for row in conn.execute("SELECT * FROM drafts WHERE email_status = 'pending'").fetchall()]
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT * FROM drafts WHERE email_status IN ('pending', 'failed')"
+                ).fetchall()
+            ]
 
     def mark_email_status(self, doc_id: str, status: str) -> None:
         """Mark a draft email as sent or otherwise handled."""
@@ -251,6 +256,16 @@ class Storage:
                 "UPDATE drafts SET email_status = ?, updated_at = CURRENT_TIMESTAMP WHERE doc_id = ?",
                 (status, doc_id),
             )
+
+    def status_counts(self) -> dict[str, dict[str, int]]:
+        """Return compact workflow status totals for run summaries."""
+        with self.connect() as conn:
+            return {
+                "filings": _count_by(conn, "filings", "status"),
+                "emails": _count_by(conn, "drafts", "email_status"),
+                "publishing": _count_by(conn, "drafts", "publish_status"),
+                "followups": _count_by(conn, "followups", "status"),
+            }
 
     def current_history(self, doc_id: str) -> dict[str, Any] | None:
         """Return the parsed history row for one filing."""
@@ -398,3 +413,8 @@ class Storage:
                 (max_runs, max_runs, root_doc_id),
             )
             return cur.rowcount > 0
+
+
+def _count_by(conn: sqlite3.Connection, table: str, column: str) -> dict[str, int]:
+    rows = conn.execute(f"SELECT {column} AS status, COUNT(*) AS count FROM {table} GROUP BY {column}").fetchall()
+    return {str(row["status"]): int(row["count"]) for row in rows}

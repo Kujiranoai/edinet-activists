@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from .models import FilingMetadata, WATCHED_DOC_TYPES
+from .models import FilingMetadata, ScanResult, WATCHED_DOC_TYPES
 
 
 def date_range(days: int, today: date | None = None) -> list[date]:
@@ -87,13 +87,26 @@ class EdinetClient:
 
     def scan(self, days: int) -> list[FilingMetadata]:
         """Fetch recent EDINET metadata and keep watched document types only."""
+        return self.scan_with_stats(days).filings
+
+    def scan_with_stats(self, days: int) -> ScanResult:
+        """Fetch recent EDINET metadata and return scan counters."""
         results: list[FilingMetadata] = []
+        records_examined = 0
+        watched_by_doc_type = {doc_type: 0 for doc_type in sorted(WATCHED_DOC_TYPES)}
         for day in date_range(days):
             for doc in self.documents_for_day(day):
+                records_examined += 1
                 metadata = doc_to_metadata(doc)
                 if metadata:
+                    watched_by_doc_type[metadata.doc_type_code] += 1
                     results.append(metadata)
-        return results
+        return ScanResult(
+            filings=results,
+            records_examined=records_examined,
+            watched_count=len(results),
+            watched_by_doc_type=watched_by_doc_type,
+        )
 
     def fetch_raw(self, doc_id: str, output_dir: Path) -> Path | None:
         """Download the raw EDINET filing ZIP into the artifact directory."""

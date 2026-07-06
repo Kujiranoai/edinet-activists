@@ -144,13 +144,22 @@ class FirestoreStorage:
         )
 
     def pending_emails(self) -> list[dict[str, Any]]:
-        return [
+        rows = [
             _doc_to_dict(doc)
-            for doc in self._collection("drafts").where("email_status", "==", "pending").stream()
+            for doc in self._collection("drafts").where("email_status", "in", ["pending", "failed"]).stream()
         ]
+        return sorted(rows, key=lambda row: (row.get("created_at") or "", row.get("doc_id") or ""))
 
     def mark_email_status(self, doc_id: str, status: str) -> None:
         self._collection("drafts").document(doc_id).update({"email_status": status, "updated_at": _now()})
+
+    def status_counts(self) -> dict[str, dict[str, int]]:
+        return {
+            "filings": _count_by(self._collection("filings").stream(), "status"),
+            "emails": _count_by(self._collection("drafts").stream(), "email_status"),
+            "publishing": _count_by(self._collection("drafts").stream(), "publish_status"),
+            "followups": _count_by(self._collection("followups").stream(), "status"),
+        }
 
     def all_drafts(self) -> list[dict[str, Any]]:
         rows = [_doc_to_dict(doc) for doc in self._collection("drafts").stream()]
@@ -271,3 +280,11 @@ def _doc_to_dict(doc: Any) -> dict[str, Any]:
     if "doc_id" not in data:
         data["doc_id"] = doc.id
     return data
+
+
+def _count_by(docs: Any, field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for doc in docs:
+        value = str((_doc_to_dict(doc).get(field) or "unknown"))
+        counts[value] = counts.get(value, 0) + 1
+    return counts
