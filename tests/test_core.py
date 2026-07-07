@@ -12,6 +12,7 @@ from edinet_watcher.edinet_client import doc_to_metadata
 from edinet_watcher.models import Activist, FilingMetadata
 from edinet_watcher.parser import extract_target_name
 from edinet_watcher.pipeline import Pipeline
+from edinet_watcher.publisher import _index_record
 from edinet_watcher.storage import Storage
 from edinet_watcher.text import normalize_display_text
 
@@ -92,6 +93,43 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(extract_target_name(parsed), "ＫＨネオケム株式会社")
         self.assertEqual(normalize_display_text(extract_target_name(parsed)), "KHネオケム株式会社")
+
+    def test_static_site_index_record_prefers_parsed_fields_and_normalizes_pct(self) -> None:
+        report = {
+            "generated_at": "2026-07-04T09:37:12+00:00",
+            "summary": {
+                "filer": "Summary Filer",
+                "target_company": "Summary Target",
+                "filing_type": "Large Shareholding Report",
+            },
+            "source": {
+                "metadata": {
+                    "doc_id": "S100YMTO",
+                    "doc_type_code": "350",
+                    "filer_edinet_code": "E31883",
+                    "filer_name": "Ｏａｓｉｓ　Ｍａｎａｇｅｍｅｎｔ　Ｃｏｍｐａｎｙ　Ｌｔｄ．",
+                    "target_name": None,
+                    "raw": {"_data": {"issuerEdinetCode": "E05609", "submitDateTime": "2026-07-02 16:01"}},
+                },
+                "parsed_fields": {
+                    "filing_date": "2026-07-02",
+                    "filer_name_en": "Oasis Management Company Ltd.",
+                    "target_company": "株式会社インフォマート",
+                    "target_ticker": "2492.T",
+                    "ownership_pct": "0.0507",
+                },
+            },
+        }
+
+        record = _index_record("fallback", "Sample Title", "filings/S100YMTO.html", report)
+
+        self.assertEqual(record["doc_id"], "S100YMTO")
+        self.assertEqual(record["filing_date"], "2026-07-02")
+        self.assertEqual(record["filer_name"], "Oasis Management Company Ltd.")
+        self.assertEqual(record["target_company"], "株式会社インフォマート")
+        self.assertEqual(record["target_edinet_code"], "E05609")
+        self.assertEqual(record["target_ticker"], "2492.T")
+        self.assertEqual(record["ownership_pct"], 5.07)
 
 
 class FakeEdinet:
@@ -204,6 +242,17 @@ activists:
             publish_result = pipeline.publish()
             self.assertEqual(publish_result.built, 3)
             self.assertTrue((base / "data" / "site" / "index.html").exists())
+            self.assertTrue((base / "data" / "site" / "reports.json").exists())
+            self.assertTrue((base / "data" / "site" / "app.js").exists())
+            site_index = (base / "data" / "site" / "index.html").read_text(encoding="utf-8")
+            self.assertIn("data-filter-search", site_index)
+            self.assertIn("data-sort=\"ownership_pct\"", site_index)
+            site_reports = json.loads((base / "data" / "site" / "reports.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(site_reports["reports"]), 3)
+            self.assertEqual(
+                {report["doc_id"] for report in site_reports["reports"]},
+                {"S1", "S2", "S1-followup-1"},
+            )
 
 
 if __name__ == "__main__":
