@@ -243,6 +243,16 @@ gcloud run jobs executions list \
 
 ## Scheduler
 
+Allow the Scheduler's OAuth service account to execute the Cloud Run Job:
+
+```bash
+gcloud run jobs add-iam-policy-binding edinet-watcher-hourly \
+  --region=asia-northeast1 \
+  --member="serviceAccount:edinet-watcher-runner@activists-edinet.iam.gserviceaccount.com" \
+  --role="roles/run.jobsExecutor" \
+  --project=activists-edinet
+```
+
 Create the hourly working-hours schedule after the manual run works:
 
 ```bash

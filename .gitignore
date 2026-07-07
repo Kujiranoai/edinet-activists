@@ -40,10 +40,9 @@ pip-wheel-metadata/
 # Logs and runtime state
 *.log
 .gcloud/
-firebase.json.txt
-hosting.jpg
 
 # Project-generated data/artifacts
+data-*/
 data/*
 !data/drafts/
 !data/parsed/
@@ -56,5 +55,4 @@ data/reports/*
 !data/reports/*.json
 data/edinet_watch.sqlite3
 data/raw/
-data-*/
 downloads/
