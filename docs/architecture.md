@@ -14,7 +14,7 @@ At a high level it does seven jobs:
 2. Scan EDINET for recent large-shareholding filings.
 3. Keep only filings whose filer matches `activists.yml`.
 4. Download, parse, and store useful filing facts.
-5. Ask OpenAI to draft immediate reports for initial and amended 5% filings.
+5. Ask OpenAI to draft initial 5% reports and render later amendment/change reports directly from EDINET data.
 6. Schedule monthly follow-up research for initial 5% filings.
 7. Email drafts and build a static website that can be deployed to Firebase.
 
@@ -66,7 +66,7 @@ EDINET API
   -> raw ZIP files under data/raw/
   -> parsed JSON under data/parsed/
   -> filing_history table
-  -> OpenAI report JSON under data/reports/
+  -> report JSON under data/reports/ (OpenAI is used only for initial `350` filings)
   -> Markdown draft under data/drafts/
   -> drafts table
   -> SMTP email
@@ -104,8 +104,8 @@ The important methods are:
 
 - `scan`: fetch metadata from EDINET and insert matching activist filings.
 - `process`: download and parse discovered filings.
-- `draft`: call OpenAI, or offline helpers, to create report and draft files
-  for `350` and `360` filings.
+- `draft`: use OpenAI for initial `350` filings and deterministic EDINET data
+  rendering for `360`, `370`, and `380` filings.
 - `email`: send pending drafts through SMTP.
 - `followups`: run and manage monthly follow-up research for initial `350`
   filings.
@@ -256,10 +256,11 @@ Common statuses:
 - `download_failed`: raw EDINET download failed.
 - `parse_failed`: parsing failed.
 - `parsed`: parsed JSON and history were written.
-- `llm_failed`: OpenAI or draft generation failed.
+- `llm_failed`: OpenAI or draft generation failed (retained as the retry status
+  for immediate report generation).
 - `drafted`: report and draft files were generated.
-- `draft_skipped`: parsed successfully, but immediate drafting is skipped
-  because the filing is a `370` or `380`.
+- `draft_skipped`: parsed successfully, but its type is not one of the watched
+  immediate-report types.
 
 ### `filing_history`
 

@@ -11,8 +11,13 @@ OWNERSHIP_KEYS = (
     "HoldingRatio",
     "RatioOfShareHolding",
 )
-PURPOSE_KEYS = ("purpose_of_holding", "PurposeOfHolding", "holding_purpose")
-PROPOSAL_KEYS = ("important_proposal_rights", "ImportantProposalRights", "act_of_making_important_suggestion")
+PURPOSE_KEYS = ("purpose_of_holding", "PurposeOfHolding", "holding_purpose", "purpose")
+PROPOSAL_KEYS = (
+    "important_proposal_rights",
+    "ImportantProposalRights",
+    "act_of_making_important_suggestion",
+    "important_proposal",
+)
 TARGET_NAME_KEYS = ("target_name", "target_company", "issuerName", "NameOfIssuer")
 FACT_VALUE_RE = re.compile(r"value='([^']*)'")
 

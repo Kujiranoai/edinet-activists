@@ -113,6 +113,27 @@ header {
 a {
   color: #0a5c7a;
 }
+.initial-report td:first-child {
+  border-left: 4px solid #b42318;
+  padding-left: 12px;
+}
+.initial-report-link {
+  color: #b42318;
+  font-weight: 700;
+}
+.initial-report-badge {
+  background: #fbe9e7;
+  border: 1px solid #e6a39c;
+  border-radius: 999px;
+  color: #8f1d14;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-left: 7px;
+  padding: 1px 7px;
+  vertical-align: 1px;
+}
 article {
   background: #ffffff;
   border: 1px solid #ddded8;
@@ -275,16 +296,22 @@ function renderRows() {
     const compared = compareValues(left[state.sortKey], right[state.sortKey]);
     return state.sortDirection === "asc" ? compared : -compared;
   });
-  els.body.innerHTML = rows.map((report) => `
-    <tr>
-      <td><a href="${escapeAttr(report.href)}">${escapeHtml(display(report.title, "EDINET report"))}</a><div class="meta">${escapeHtml(report.doc_id)}</div></td>
+  els.body.innerHTML = rows.map((report) => {
+    const initial = report.doc_type_code === "350";
+    const rowClass = initial ? ' class="initial-report"' : "";
+    const linkClass = initial ? "initial-report-link" : "";
+    const badge = initial ? '<span class="initial-report-badge">Initial 5% report</span>' : "";
+    return `
+    <tr${rowClass}>
+      <td><a class="${linkClass}" href="${escapeAttr(report.href)}">${escapeHtml(display(report.title, "EDINET report"))}</a>${badge}<div class="meta">${escapeHtml(report.doc_id)}</div></td>
       <td>${escapeHtml(report.filing_date)}</td>
       <td>${escapeHtml(report.filer_name)}</td>
       <td>${escapeHtml(report.target_company)}</td>
       <td>${escapeHtml(report.doc_type_label || report.doc_type_code)}</td>
       <td class="number">${pct(report.ownership_pct)}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
   if (els.count) els.count.textContent = `${rows.length} report${rows.length === 1 ? "" : "s"}`;
   if (els.empty) els.empty.hidden = rows.length > 0;
 }
@@ -588,8 +615,12 @@ def _index_row_html(entry: dict[str, Any]) -> str:
     title = html.escape(str(entry.get("title") or "EDINET report"))
     href = html.escape(str(entry.get("href") or "#"))
     doc_id = html.escape(str(entry.get("doc_id") or ""))
-    return f"""        <tr>
-          <td><a href="{href}">{title}</a><div class="meta">{doc_id}</div></td>
+    initial = entry.get("doc_type_code") == "350"
+    row_class = ' class="initial-report"' if initial else ""
+    link_class = ' class="initial-report-link"' if initial else ""
+    badge = '<span class="initial-report-badge">Initial 5% report</span>' if initial else ""
+    return f"""        <tr{row_class}>
+          <td><a{link_class} href="{href}">{title}</a>{badge}<div class="meta">{doc_id}</div></td>
           <td>{html.escape(str(entry.get("filing_date") or "-"))}</td>
           <td>{html.escape(str(entry.get("filer_name") or "-"))}</td>
           <td>{html.escape(str(entry.get("target_company") or "-"))}</td>

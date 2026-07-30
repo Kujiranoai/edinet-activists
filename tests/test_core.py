@@ -9,10 +9,11 @@ from pathlib import Path
 from edinet_watcher.activists import matches_activist
 from edinet_watcher.config import Settings
 from edinet_watcher.edinet_client import doc_to_metadata
+from edinet_watcher.llm import offline_article, offline_summary
 from edinet_watcher.models import Activist, FilingMetadata
-from edinet_watcher.parser import extract_target_name
+from edinet_watcher.parser import extract_proposal_rights, extract_purpose, extract_target_name
 from edinet_watcher.pipeline import Pipeline
-from edinet_watcher.publisher import _index_record
+from edinet_watcher.publisher import _index_record, _index_row_html
 from edinet_watcher.storage import Storage
 from edinet_watcher.text import normalize_display_text
 
@@ -94,6 +95,15 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(extract_target_name(parsed), "ＫＨネオケム株式会社")
         self.assertEqual(normalize_display_text(extract_target_name(parsed)), "KHネオケム株式会社")
 
+    def test_extracts_current_edinet_purpose_and_proposal_field_names(self) -> None:
+        parsed = {
+            "purpose": "Constructive engagement.",
+            "important_proposal": "May make important proposals.",
+        }
+
+        self.assertEqual(extract_purpose(parsed), "Constructive engagement.")
+        self.assertEqual(extract_proposal_rights(parsed), "May make important proposals.")
+
     def test_static_site_index_record_prefers_parsed_fields_and_normalizes_pct(self) -> None:
         report = {
             "generated_at": "2026-07-04T09:37:12+00:00",
@@ -131,10 +141,23 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(record["target_ticker"], "2492.T")
         self.assertEqual(record["ownership_pct"], 5.07)
 
+        row = _index_row_html(record)
+        self.assertIn('class="initial-report"', row)
+        self.assertIn('class="initial-report-link"', row)
+        self.assertIn("Initial 5% report", row)
+
+        update_row = _index_row_html({**record, "doc_type_code": "370"})
+        self.assertNotIn("initial-report", update_row)
+
 
 class FakeEdinet:
     def __init__(self) -> None:
-        self.docs = [metadata("S1", "350"), metadata("S2", "360"), metadata("S3", "370")]
+        self.docs = [
+            metadata("S1", "350"),
+            metadata("S2", "360"),
+            metadata("S3", "370"),
+            metadata("S4", "380"),
+        ]
 
     def scan(self, days: int):
         return self.docs
@@ -160,8 +183,23 @@ class FakeEmailer:
         self.sent.append((subject, body, draft_path, report_path))
 
 
+class RecordingLlm:
+    def __init__(self) -> None:
+        self.extract_calls: list[str] = []
+        self.article_calls: list[str] = []
+
+    def extract(self, prompt: str, payload: dict) -> dict:
+        self.extract_calls.append(payload["metadata"]["doc_id"])
+        return offline_summary(payload)
+
+    def draft_article(self, prompt: str, report: dict) -> str:
+        doc_id = report["source"]["metadata"]["doc_id"]
+        self.article_calls.append(doc_id)
+        return offline_article(report["summary"], doc_id)
+
+
 class PipelineTests(unittest.TestCase):
-    def test_end_to_end_offline_pipeline_writes_artifacts_and_email(self) -> None:
+    def test_only_initial_report_uses_llm_and_all_types_produce_drafts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "activists.yml").write_text(
@@ -205,42 +243,57 @@ activists:
             )
             (base / "prompt_followup.md").write_text("followup", encoding="utf-8")
             emailer = FakeEmailer()
-            pipeline = Pipeline(settings, edinet_client=FakeEdinet(), emailer=emailer)
+            llm = RecordingLlm()
+            pipeline = Pipeline(
+                settings,
+                edinet_client=FakeEdinet(),
+                llm_client=llm,
+                emailer=emailer,
+            )
 
-            result = pipeline.run(days=3, offline=True)
+            result = pipeline.run(days=3, offline=False)
 
-            self.assertEqual(result["records_examined"], 3)
-            self.assertEqual(result["watched_reports_found"], 3)
-            self.assertEqual(result["activist_matches"], 3)
-            self.assertEqual(result["new_filings"], 3)
-            self.assertEqual(result["processed"], 3)
-            self.assertEqual(result["drafted"], 2)
-            self.assertEqual(result["emailed"], 2)
+            self.assertEqual(result["records_examined"], 4)
+            self.assertEqual(result["watched_reports_found"], 4)
+            self.assertEqual(result["activist_matches"], 4)
+            self.assertEqual(result["new_filings"], 4)
+            self.assertEqual(result["processed"], 4)
+            self.assertEqual(result["drafted"], 4)
+            self.assertEqual(result["emailed"], 4)
             self.assertEqual(result["site_built"], 0)
             self.assertFalse(result["site_deployed"])
             self.assertEqual(result["errors"], 0)
-            self.assertEqual(result["status_counts"]["filings"], {"draft_skipped": 1, "drafted": 2})
-            self.assertEqual(result["status_counts"]["emails"], {"sent": 2})
-            self.assertEqual(len(emailer.sent), 2)
+            self.assertEqual(result["status_counts"]["filings"], {"drafted": 4})
+            self.assertEqual(result["status_counts"]["emails"], {"sent": 4})
+            self.assertEqual(llm.extract_calls, ["S1"])
+            self.assertEqual(llm.article_calls, ["S1"])
+            self.assertEqual(len(emailer.sent), 4)
             drafts = sorted((base / "data" / "drafts").glob("*.md"))
             reports = sorted((base / "data" / "reports").glob("*.json"))
-            self.assertEqual(len(drafts), 2)
-            self.assertEqual(len(reports), 2)
+            self.assertEqual(len(drafts), 4)
+            self.assertEqual(len(reports), 4)
             report = json.loads(reports[0].read_text(encoding="utf-8"))
             self.assertIn("summary", report)
             self.assertIn("source", report)
+            self.assertEqual(report["generation_method"], "openai")
+            update_report = json.loads(
+                (base / "data" / "reports" / "S3.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(update_report["generation_method"], "edinet_extracted")
+            update_draft = (base / "data" / "drafts" / "2026-07-03-S3.md").read_text(encoding="utf-8")
+            self.assertIn("No OpenAI analysis was used", update_draft)
             followups = pipeline.storage.list_followups()
             self.assertEqual(len(followups), 1)
             self.assertEqual(followups[0]["root_doc_id"], "S1")
 
             self.assertEqual(pipeline.followups(offline=True), 0)
             self.assertEqual(pipeline.followups(offline=True, today=date(2026, 8, 3)), 1)
-            self.assertEqual(len(emailer.sent), 2)
+            self.assertEqual(len(emailer.sent), 4)
             self.assertEqual(pipeline.email(), 1)
-            self.assertEqual(len(emailer.sent), 3)
+            self.assertEqual(len(emailer.sent), 5)
 
             publish_result = pipeline.publish()
-            self.assertEqual(publish_result.built, 3)
+            self.assertEqual(publish_result.built, 5)
             self.assertTrue((base / "data" / "site" / "index.html").exists())
             self.assertTrue((base / "data" / "site" / "reports.json").exists())
             self.assertTrue((base / "data" / "site" / "app.js").exists())
@@ -248,10 +301,10 @@ activists:
             self.assertIn("data-filter-search", site_index)
             self.assertIn("data-sort=\"ownership_pct\"", site_index)
             site_reports = json.loads((base / "data" / "site" / "reports.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(site_reports["reports"]), 3)
+            self.assertEqual(len(site_reports["reports"]), 5)
             self.assertEqual(
                 {report["doc_id"] for report in site_reports["reports"]},
-                {"S1", "S2", "S1-followup-1"},
+                {"S1", "S2", "S3", "S4", "S1-followup-1"},
             )
 
 
