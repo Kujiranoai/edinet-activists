@@ -140,6 +140,21 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(record["target_edinet_code"], "E05609")
         self.assertEqual(record["target_ticker"], "2492.T")
         self.assertEqual(record["ownership_pct"], 5.07)
+        self.assertTrue(record["is_initial_report"])
+
+        historic_change_record = _index_record(
+            "fallback",
+            "Historic Change Report",
+            "filings/S100YQYW.html",
+            {
+                **report,
+                "summary": {
+                    **report["summary"],
+                    "filing_type": "変更報告書 No. 8",
+                },
+            },
+        )
+        self.assertFalse(historic_change_record["is_initial_report"])
 
         row = _index_row_html(record)
         self.assertIn('class="initial-report"', row)
@@ -148,6 +163,24 @@ class CoreTests(unittest.TestCase):
 
         update_row = _index_row_html({**record, "doc_type_code": "370"})
         self.assertNotIn("initial-report", update_row)
+
+        historic_change_row = _index_row_html(
+            {
+                **record,
+                "doc_type_code": "350",
+                "doc_type_label": "変更報告書 No. 8",
+            }
+        )
+        self.assertNotIn("initial-report", historic_change_row)
+
+        historic_amendment_row = _index_row_html(
+            {
+                **record,
+                "doc_type_code": "350",
+                "doc_type_label": "Large Shareholding Report Amendment",
+            }
+        )
+        self.assertNotIn("initial-report", historic_amendment_row)
 
 
 class FakeEdinet:

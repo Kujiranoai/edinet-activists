@@ -297,7 +297,7 @@ function renderRows() {
     return state.sortDirection === "asc" ? compared : -compared;
   });
   els.body.innerHTML = rows.map((report) => {
-    const initial = report.doc_type_code === "350";
+    const initial = report.is_initial_report === true;
     const rowClass = initial ? ' class="initial-report"' : "";
     const linkClass = initial ? "initial-report-link" : "";
     const badge = initial ? '<span class="initial-report-badge">Initial 5% report</span>' : "";
@@ -581,7 +581,7 @@ def _index_record(doc_id: str, title: str, href: str, report: dict[str, Any]) ->
         or ""
     )
 
-    return {
+    record = {
         "doc_id": record_doc_id,
         "title": title,
         "href": href,
@@ -609,13 +609,15 @@ def _index_record(doc_id: str, title: str, href: str, report: dict[str, Any]) ->
             )
         ),
     }
+    record["is_initial_report"] = _is_initial_report(record)
+    return record
 
 
 def _index_row_html(entry: dict[str, Any]) -> str:
     title = html.escape(str(entry.get("title") or "EDINET report"))
     href = html.escape(str(entry.get("href") or "#"))
     doc_id = html.escape(str(entry.get("doc_id") or ""))
-    initial = entry.get("doc_type_code") == "350"
+    initial = _is_initial_report(entry)
     row_class = ' class="initial-report"' if initial else ""
     link_class = ' class="initial-report-link"' if initial else ""
     badge = '<span class="initial-report-badge">Initial 5% report</span>' if initial else ""
@@ -627,6 +629,21 @@ def _index_row_html(entry: dict[str, Any]) -> str:
           <td>{html.escape(str(entry.get("doc_type_label") or entry.get("doc_type_code") or "-"))}</td>
           <td class="number">{_format_pct(entry.get("ownership_pct"))}</td>
         </tr>"""
+
+
+def _is_initial_report(entry: dict[str, Any]) -> bool:
+    """Classify initial filings while tolerating stale codes in historical records."""
+    label = str(entry.get("doc_type_label") or "").casefold()
+    non_initial_markers = (
+        "変更報告書",
+        "訂正報告書",
+        "change report",
+        "amendment",
+        "correction",
+    )
+    return str(entry.get("doc_type_code") or "") == "350" and not any(
+        marker in label for marker in non_initial_markers
+    )
 
 
 def _dict_value(value: Any) -> dict[str, Any]:
