@@ -162,6 +162,83 @@ EDINET document ID: `{doc_id}`
 """
 
 
+def extracted_data_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    """Create a factual summary directly from the fields parsed from EDINET."""
+    summary = offline_summary(payload)
+    parsed = payload.get("parsed_fields") or {}
+    if parsed.get("prior_ownership_pct") not in (None, ""):
+        summary["previous_ownership_pct"] = parsed["prior_ownership_pct"]
+        summary["caveats"] = [
+            caveat
+            for caveat in summary["caveats"]
+            if caveat != "No previous stored filing was available for this activist-target pair."
+        ]
+    if parsed.get("ownership_change") not in (None, ""):
+        summary["ownership_delta_pct"] = parsed["ownership_change"]
+    summary["commentary_points"] = [
+        "This report reproduces the fields extracted from EDINET without AI-generated analysis."
+    ]
+    return summary
+
+
+def extracted_data_article(summary: dict[str, Any], doc_id: str) -> str:
+    """Render parsed EDINET fields as Markdown without making an OpenAI call."""
+    filer = normalize_display_text(summary.get("filer") or "Investor")
+    target = normalize_display_text(summary.get("target_company") or "Target company")
+    filing_type = normalize_display_text(summary.get("filing_type") or "EDINET report")
+    headline = f"{filer} / {target}: {filing_type}"
+    facts = "\n".join(
+        f"- {normalize_display_text(fact)}" for fact in summary.get("headline_facts", [])
+    )
+    caveats = "\n".join(f"- {normalize_display_text(item)}" for item in summary.get("caveats", []))
+    if not caveats:
+        caveats = "- None noted."
+
+    return f"""# {headline}
+
+## Filing Facts
+
+{facts}
+
+- Current ownership: {_display_pct(summary.get('current_ownership_pct'))}
+- Previous known ownership: {_display_pct(summary.get('previous_ownership_pct'))}
+- Change: {_display_pct(summary.get('ownership_delta_pct'), signed=True)}
+
+## Purpose of Holding
+
+{normalize_display_text(summary.get('purpose_of_holding') or 'Not available in the extracted EDINET fields.')}
+
+## Important Proposal Rights
+
+{normalize_display_text(summary.get('important_proposal_rights') or 'Not available in the extracted EDINET fields.')}
+
+## Note
+
+This update report was generated directly from the extracted EDINET data. No OpenAI analysis was used.
+
+## Caveats
+
+{caveats}
+
+## Source
+
+EDINET document ID: `{doc_id}`
+"""
+
+
+def _display_pct(value: Any, *, signed: bool = False) -> str:
+    if value in (None, ""):
+        return "Not available"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return normalize_display_text(str(value))
+    if 0 < abs(number) <= 1:
+        number *= 100
+    sign = "+" if signed and number > 0 else ""
+    return f"{sign}{number:.2f}%"
+
+
 def offline_followup_article(payload: dict[str, Any]) -> str:
     """Create a deterministic monthly follow-up article for local tests."""
     followup = payload["followup"]

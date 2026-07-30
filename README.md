@@ -64,7 +64,8 @@ Artifacts are written under `data/`:
 
 - The watcher filters EDINET document type codes `350`, `360`, `370`, and `380`.
 - It deduplicates by EDINET `doc_id`.
-- Immediate OpenAI filing drafts are generated for `350` and `360`; `370` and `380` are parsed but skipped for immediate drafting.
+- OpenAI is used only for initial large-shareholding reports (`350`).
+- Amendment and change reports (`360`, `370`, and `380`) are rendered directly from parsed EDINET data without OpenAI.
 - Initial `350` filings create monthly follow-up schedules, defaulting to six reports at 30-day intervals.
 - OpenAI filing generation is two-stage: structured filing summary, then article draft.
 - Static publishing currently builds local HTML and can deploy through Firebase CLI. The deploy boundary is isolated so it can later be replaced by Firebase Hosting REST API deployment.

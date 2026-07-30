@@ -12,8 +12,22 @@ from .config import Settings
 from .edinet_client import EdinetClient
 from .emailer import Emailer
 from .logging_utils import log_event
-from .llm import LlmClient, offline_article, offline_followup_article, offline_summary
-from .models import DraftArtifacts, FilingComparison, FilingMetadata, ParsedFiling, ScanResult
+from .llm import (
+    LlmClient,
+    extracted_data_article,
+    extracted_data_summary,
+    offline_article,
+    offline_followup_article,
+    offline_summary,
+)
+from .models import (
+    WATCHED_DOC_TYPES,
+    DraftArtifacts,
+    FilingComparison,
+    FilingMetadata,
+    ParsedFiling,
+    ScanResult,
+)
 from .parser import extract_ownership_pct, extract_proposal_rights, extract_purpose, extract_target_name
 from .publisher import PublishResult, StaticSitePublisher
 from .storage import Storage
@@ -24,7 +38,8 @@ class DownloadError(RuntimeError):
     pass
 
 
-IMMEDIATE_LLM_DOC_TYPES = frozenset({"350", "360"})
+IMMEDIATE_DRAFT_DOC_TYPES = WATCHED_DOC_TYPES
+IMMEDIATE_LLM_DOC_TYPES = frozenset({"350"})
 FOLLOWUP_ROOT_DOC_TYPES = frozenset({"350"})
 
 
@@ -165,10 +180,10 @@ class Pipeline:
             "drafted": 0,
             "llm_failed": 0,
         }
-        for row in self.storage.pending_filings(["parsed", "llm_failed"]):
+        for row in self.storage.pending_filings(["parsed", "llm_failed", "draft_skipped"]):
             result["attempted"] = int(result["attempted"]) + 1
             metadata = _metadata_from_row(row)
-            if metadata.doc_type_code not in IMMEDIATE_LLM_DOC_TYPES:
+            if metadata.doc_type_code not in IMMEDIATE_DRAFT_DOC_TYPES:
                 self.storage.mark_status(row["doc_id"], "draft_skipped")
                 result["draft_skipped"] = int(result["draft_skipped"]) + 1
                 continue
@@ -405,13 +420,31 @@ class Pipeline:
                 "raw_artifact_dir": current.get("raw_artifact_dir") if current else None,
             },
         }
-        summary = offline_summary(payload) if offline else self.llm.extract(extract_prompt, payload)
+        use_llm = metadata.doc_type_code in IMMEDIATE_LLM_DOC_TYPES and not offline
+        if use_llm:
+            summary = self.llm.extract(extract_prompt, payload)
+        elif metadata.doc_type_code in IMMEDIATE_LLM_DOC_TYPES:
+            summary = offline_summary(payload)
+        else:
+            summary = extracted_data_summary(payload)
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generation_method": (
+                "openai"
+                if use_llm
+                else "offline"
+                if metadata.doc_type_code in IMMEDIATE_LLM_DOC_TYPES
+                else "edinet_extracted"
+            ),
             "summary": summary,
             "source": payload,
         }
-        article = offline_article(summary, metadata.doc_id) if offline else self.llm.draft_article(article_prompt, report)
+        if use_llm:
+            article = self.llm.draft_article(article_prompt, report)
+        elif metadata.doc_type_code in IMMEDIATE_LLM_DOC_TYPES:
+            article = offline_article(summary, metadata.doc_id)
+        else:
+            article = extracted_data_article(summary, metadata.doc_id)
 
         date_prefix = (metadata.submit_datetime or datetime.now(timezone.utc).date().isoformat())[:10]
         safe_doc_id = "".join(ch for ch in metadata.doc_id if ch.isalnum() or ch in ("-", "_"))
